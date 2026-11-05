@@ -50,7 +50,7 @@ PORTFOLIOS = {
 st.markdown(f"""
 <style>
 .stApp {{ background:#F7F8FB; }}
-.block-container {{ max-width:1250px; }}
+.block-container {{ max-width:1450px; }}
 h1, h2, h3 {{ color:{NAVY}; }}
 .tag {{ display:inline-block; background:{GOLD}; color:#fff; padding:2px 10px; border-radius:12px; font-size:0.8rem; }}
 .muted {{ color:#6B7280; font-size:0.85rem; }}
@@ -239,7 +239,7 @@ st.markdown(f'<span class="tag">僅供內部教育訓練使用・請勿外流</s
             unsafe_allow_html=True)
 st.caption("舊券（A 券）贖回後，換入「零息債打底＋配息基金」或自組標的，比較繼續持有與換券在兩個時點的結果。")
 
-left, right = st.columns([1.15, 1], gap="large")
+left, right = st.columns([1.45, 1], gap="medium")
 
 # ───────────────────────── 左：A 券 ─────────────────────────
 with left:
@@ -253,7 +253,7 @@ with left:
         st.session_state.get("a_saved", a_default), num_rows="dynamic", hide_index=True, width="stretch",
         key="a_ed",
         column_config={
-            "名稱": st.column_config.TextColumn(required=True),
+            "名稱": st.column_config.TextColumn(required=True, width="small"),
             "面額": st.column_config.NumberColumn(min_value=0, step=1000, format="localized", required=True, width="small"),
             "當初投入": st.column_config.NumberColumn(min_value=0, step=1000, format="localized", width="small",
                                                     help="含溢價的實際投入（美元），用來算實現損益與稅務扣抵"),
