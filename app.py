@@ -40,6 +40,12 @@ FUNDS = {
     "富邦雙核心A台幣": 6.0,
 }
 
+# 預設配息組合（基金, 比例%, 年配息率%）；配息率為假設、可修改
+PORTFOLIOS = {
+    "333配息組合（各 1/3）": [("PIMCO收益增長", 33.3, 9.25), ("富達全球動能多元基金", 33.3, 10.0),
+                         ("貝萊德全球智慧數據股票入息基金", 33.4, 8.0)],
+}
+
 # ───────────────────────── 樣式＋浮水印 ─────────────────────────
 st.markdown(f"""
 <style>
@@ -326,16 +332,46 @@ with right:
             st.stop()
         if not pd.isna(z["min_amt"]) and 0 < z_face < z["min_amt"]:
             st.warning(f"未達最低申購面額 {fmt(z['min_amt'])}。")
-        fc1, fc2 = st.columns([3, 1])
-        fund = fc1.selectbox("剩餘資金投入的配息基金", list(FUNDS), key="fund_sel")
-        f_y = fc2.number_input("年配息率(%)", 0.0, 20.0, float(FUNDS[fund]), 0.25, key=f"fy_{fund}")
         f_amt = R - z_cost
         holds.append(dict(類型="零息債", 標的=z["bond_name"], 面額=z_face, 投入=z_cost, cpn=0.0, t=z_t,
                           y=float(z["ytm"]) if not pd.isna(z["ytm"]) else bond_yield(z["offer"], 0, z_t)))
-        holds.append(dict(類型="基金", 標的=fund, 面額=None, 投入=f_amt, fy=f_y))
-        reinv_default = f_y
+        pf = st.radio("剩餘資金投入", list(PORTFOLIOS) + ["單一基金", "自建組合"], horizontal=True, key="pf_mode")
+        if pf == "單一基金":
+            fc1, fc2 = st.columns([3, 1])
+            fund = fc1.selectbox("配息基金", list(FUNDS), key="fund_sel")
+            f_y = fc2.number_input("年配息率(%)", 0.0, 20.0, float(FUNDS[fund]), 0.25, key=f"fy_{fund}")
+            pf_rows = [(fund, 100.0, f_y)]
+        else:
+            base = PORTFOLIOS.get(pf, [("AV04駿利亨德森平衡基金", 100.0, FUNDS["AV04駿利亨德森平衡基金"])])
+            st.caption("✏️ 基金名稱、比例、配息率都可以直接改；自建組合可在最下面一列新增基金"
+                       if pf == "自建組合" else "✏️ 比例和配息率都可以直接改")
+            pf_ed = st.data_editor(
+                pd.DataFrame(base, columns=["基金", "比例(%)", "年配息率(%)"]),
+                num_rows="dynamic" if pf == "自建組合" else "fixed", hide_index=True, width="stretch",
+                key=f"pf_ed_{pf}",
+                column_config={
+                    "基金": st.column_config.TextColumn(required=True, disabled=(pf != "自建組合")),
+                    "比例(%)": st.column_config.NumberColumn(min_value=0, max_value=100, step=5, format="%.1f",
+                                                            required=True),
+                    "年配息率(%)": st.column_config.NumberColumn(min_value=0, max_value=20, step=0.25,
+                                                               format="%.2f", required=True)})
+            pf_ed = pf_ed.dropna(subset=["基金", "比例(%)", "年配息率(%)"])
+            pf_rows = [(r["基金"], float(r["比例(%)"]), float(r["年配息率(%)"])) for _, r in pf_ed.iterrows()
+                       if str(r["基金"]).strip() and r["比例(%)"] > 0]
+            w_sum = sum(w for _, w, _ in pf_rows)
+            if pf_rows and abs(w_sum - 100) > 0.05:
+                st.warning(f"比例合計為 {w_sum:.1f}%，已自動按比例換算成 100%。")
+        if not pf_rows:
+            st.info("請至少輸入一檔基金。")
+            st.stop()
+        w_sum = sum(w for _, w, _ in pf_rows)
+        for nm, w, y_ in pf_rows:
+            holds.append(dict(類型="基金", 標的=nm, 面額=None, 投入=f_amt * w / w_sum, fy=y_))
+        reinv_default = round(sum(w * y_ for _, w, y_ in pf_rows) / w_sum, 2)
+        if len(pf_rows) > 1:
+            st.caption(f"組合加權年配息率 **{reinv_default:.2f}%**（配息率為假設、非保證）")
         st.caption(f"零息債 {z['bond_name']}：價格 {z['offer']:.2f}、到期 {z['maturity']:%Y-%m-%d}"
-                   f"（剩 {z_t:.1f} 年）；投入 {fmt(z_cost)}，剩餘 {fmt(f_amt)}（{f_amt / R:.0%}）放基金。")
+                   f"（剩 {z_t:.1f} 年）；投入 {fmt(z_cost)}，剩餘 {fmt(f_amt)}（{f_amt / R:.0%}）放基金組合。")
     else:
         fund_labels = [f"基金｜{n}" for n in FUNDS]
         picks = st.multiselect("選擇換入標的（債券或基金，可多選）", list(quotes.index) + fund_labels,
