@@ -157,6 +157,23 @@ except Exception as e:
 TODAY = date.today()
 
 
+# 綜合所得稅課稅級距（上限, 稅率, 累進差額）；依財政部公告
+TAX_BRACKETS = {
+    114: [(590_000, .05, 0), (1_330_000, .12, 41_300), (2_660_000, .20, 147_700),
+          (4_980_000, .30, 413_700), (float("inf"), .40, 911_700)],
+    115: [(610_000, .05, 0), (1_380_000, .12, 42_700), (2_770_000, .20, 153_100),
+          (5_190_000, .30, 430_100), (float("inf"), .40, 949_100)],
+}
+
+
+def income_tax(net, roc_year):
+    br = TAX_BRACKETS[min(max(roc_year, min(TAX_BRACKETS)), max(TAX_BRACKETS))]
+    for cap, rate, diff in br:
+        if net <= cap:
+            return max(0.0, net * rate - diff)
+    return 0.0
+
+
 # ───────────────────────── 工具函式 ─────────────────────────
 def fmt(v, d=0):
     return "—" if v is None or (isinstance(v, float) and math.isnan(v)) else f"{v:,.{d}f}"
@@ -519,9 +536,20 @@ with t1:
                            step=100_000.0, format="%.0f", help="例如同一年賣出海外股票、ETF、境外基金的獲利")
     other = st.number_input("其他海外所得（利息、配息等，台幣）", 0.0, value=500_000.0, step=100_000.0, format="%.0f")
     net_inc = st.number_input("綜合所得淨額（台幣）", 0.0, value=2_000_000.0, step=100_000.0, format="%.0f")
-    gen_tax = st.number_input("一般所得稅額（台幣）", 0.0, value=200_000.0, step=10_000.0, format="%.0f")
+    roc = redeem_day.year - 1911
+    auto_tax = income_tax(net_inc, roc)
+    use_br = min(max(roc, min(TAX_BRACKETS)), max(TAX_BRACKETS))
+    note = "" if use_br == roc else f"（{roc} 年度級距尚未公告，暫用 {use_br} 年度）"
+    manual = st.checkbox("手動輸入一般所得稅額（例如有投資抵減、分開計稅等特殊情況）", key="manual_tax")
+    if manual:
+        gen_tax = st.number_input("一般所得稅額（台幣）", 0.0, value=float(round(auto_tax)), step=10_000.0,
+                                  format="%.0f")
+    else:
+        gen_tax = auto_tax
+        st.caption(f"一般所得稅額（自動計算）：**{fmt(gen_tax)} 元**＝綜合所得淨額 {fmt(net_inc)} 套 {use_br} 年度"
+                   f"累進稅率{note}")
     exempt = st.number_input("基本所得額免稅額（台幣）", 0.0, value=7_500_000.0, step=100_000.0, format="%.0f",
-                             help="依每年公告調整")
+                             help="113～115 年度皆為 750 萬，依財政部每年公告調整")
 
 
 def basic_tax(prop_gain):
@@ -546,7 +574,7 @@ with t2:
         ["綜合所得淨額", net_inc, net_inc],
         ["基本所得額", b0, b1],
         ["基本稅額（超過免稅額部分 × 20%）", t0, t1v],
-        ["一般所得稅額", gen_tax, gen_tax],
+        ["一般所得稅額（綜所稅應納稅額）", gen_tax, gen_tax],
         ["應補繳基本稅額", d0, d1],
     ], columns=["項目（台幣）", "不換券", "換券（實現虧損）"])
     tax["差異"] = tax["換券（實現虧損）"] - tax["不換券"]
