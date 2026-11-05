@@ -247,21 +247,23 @@ with left:
     st.caption("✏️ 直接在表格填寫，可新增多列（表格最下面一列點一下就能新增）")
     a_default = pd.DataFrame([{
         "名稱": "舊長債", "面額": 100000.0, "當初投入": 100000.0,
-        "價格": 75.0, "票面%": 3.5, "到期日": date(TODAY.year + 18, TODAY.month, 1),
+        "價格": 75.0, "票面%": 3.5, "到期日": date(TODAY.year + 18, TODAY.month, 1), "已領息": 15000.0,
     }])
     a_in = st.data_editor(
         st.session_state.get("a_saved", a_default), num_rows="dynamic", hide_index=True, width="stretch",
         key="a_ed",
         column_config={
             "名稱": st.column_config.TextColumn(required=True),
-            "面額": st.column_config.NumberColumn(min_value=0, step=1000, format="localized", required=True),
-            "當初投入": st.column_config.NumberColumn(min_value=0, step=1000, format="localized",
+            "面額": st.column_config.NumberColumn(min_value=0, step=1000, format="localized", required=True, width="small"),
+            "當初投入": st.column_config.NumberColumn(min_value=0, step=1000, format="localized", width="small",
                                                     help="含溢價的實際投入（美元），用來算實現損益與稅務扣抵"),
-            "價格": st.column_config.NumberColumn(min_value=0.01, max_value=200, step=0.01, format="%.2f",
+            "價格": st.column_config.NumberColumn(min_value=0.01, max_value=200, step=0.01, format="%.2f", width="small",
                                                   required=True, help="目前可贖回價格（每 100 面額）"),
-            "票面%": st.column_config.NumberColumn(min_value=0, max_value=20, step=0.125, format="%.3f",
+            "票面%": st.column_config.NumberColumn(min_value=0, max_value=20, step=0.125, format="%.2f", width="small",
                                                       required=True),
-            "到期日": st.column_config.DateColumn(min_value=TODAY, format="YYYY-MM-DD", required=True),
+            "到期日": st.column_config.DateColumn(min_value=TODAY, format="YYYY-MM-DD", required=True, width="small"),
+            "已領息": st.column_config.NumberColumn(min_value=0, step=500, format="localized", width="small",
+                                                 help="持有至今已領到的配息（美元，選填）；兩邊總值都會加上"),
         })
     a = a_in.dropna(subset=["面額", "價格", "票面%", "到期日"]).copy()
     a = a[a["面額"] > 0]
@@ -274,19 +276,24 @@ with left:
     a["每年配息"] = a["面額"] * a["票面%"] / 100
     a["當初投入"] = a["當初投入"].fillna(a["面額"])
     a["實現損益"] = a["贖回金額"] - a["當初投入"]
+    a["已領息"] = a["已領息"].fillna(0) if "已領息" in a else 0.0
+    a["含息損益"] = a["實現損益"] + a["已領息"]
     R = a["贖回金額"].sum()
-    show_table(a[["名稱", "剩餘年期", "殖利率(%)", "贖回金額", "每年配息", "實現損益"]],
+    RECEIVED = float(a["已領息"].sum())
+    show_table(a[["名稱", "剩餘年期", "殖利率(%)", "贖回金額", "每年配息", "實現損益", "含息損益"]],
                {"剩餘年期": "{:.1f}", "殖利率(%)": "{:.2f}%", "贖回金額": "{:,.0f}", "每年配息": "{:,.0f}",
-                "實現損益": "{:+,.0f}"},
-               signed=("實現損益",),
+                "實現損益": "{:+,.0f}", "含息損益": "{:+,.0f}"},
+               signed=("實現損益", "含息損益"),
                total=None if len(a) < 2 else {"名稱": "合計", "贖回金額": fmt(R),
                                               "每年配息": fmt(a["每年配息"].sum()),
-                                              "實現損益": f'{a["實現損益"].sum():+,.0f}'})
+                                              "實現損益": f'{a["實現損益"].sum():+,.0f}',
+                                              "含息損益": f'{a["含息損益"].sum():+,.0f}'})
     c1, c2 = st.columns(2)
     c1.markdown(f'<div class="card">贖回可用資金（美元）<div class="big">{fmt(R)}</div></div>',
                 unsafe_allow_html=True)
-    c2.markdown(f'<div class="card">實現損益（美元）<div class="big">{a["實現損益"].sum():+,.0f}</div></div>',
-                unsafe_allow_html=True)
+    c2.markdown(f'<div class="card">實現損益（美元）<div class="big">{a["實現損益"].sum():+,.0f}</div>'
+                f'<span class="muted">加上已領配息 {fmt(RECEIVED)}，含息損益 '
+                f'<b>{a["含息損益"].sum():+,.0f}</b></span></div>', unsafe_allow_html=True)
 
 # ───────────────────────── 右：換入方式 ─────────────────────────
 with right:
@@ -455,12 +462,12 @@ horizons = [("換入債券到期", H1), ("A 券到期", H2)] if abs(H1 - H2) > 0
 
 
 def total_hold(H):
-    return sum(bond_total(f, c, t, y, H, dy, reinv)
+    return RECEIVED + sum(bond_total(f, c, t, y, H, dy, reinv)
                for f, c, t, y in zip(a["面額"], a["票面%"], a["剩餘年期"], a["殖利率(%)"]))
 
 
 def total_swap(H):
-    tot = cash_left
+    tot = cash_left + RECEIVED
     for h in holds:
         if h["類型"] == "基金":
             tot += h["投入"] * h["fy"] / 100 * H + h["投入"] * (1 + nav / 100)
@@ -470,7 +477,8 @@ def total_swap(H):
 
 
 def ann(total, H):
-    return (total / R) ** (1 / H) - 1 if H > 0 and R > 0 and total > 0 else float("nan")
+    t = total - RECEIVED                      # 年化從贖回金額起算，不含已領配息
+    return (t / R) ** (1 / H) - 1 if H > 0 and R > 0 and t > 0 else float("nan")
 
 
 rows = []
@@ -524,9 +532,9 @@ show_table(res[["比較時點", "維持A券", "換券", "換券多出", "年化_
     columns={"維持A券": "維持 A 券合計", "換券": "換券合計", "年化_維持": "年化（維持）", "年化_換券": "年化（換券）"}),
     {"維持 A 券合計": "{:,.0f}", "換券合計": "{:,.0f}", "換券多出": "{:+,.0f}",
      "年化（維持）": "{:.2%}", "年化（換券）": "{:.2%}"}, signed=("換券多出",))
-st.caption("合計＝累計配息＋比較時點的本金或估價（已到期債券以面額計，之後依「再投入配息率」續領息）；"
+st.caption("合計＝已領配息＋未來累計配息＋比較時點的本金或估價（已到期債券以面額計，之後依「再投入配息率」續領息）；"
            "未到期債券以目前殖利率加計利率變動估價；基金本金依淨值變動假設計算。"
-           "年化從贖回金額起算，不含出場前已領配息（兩邊相同）。")
+           "已領配息兩邊相同，不影響換券多出；年化從贖回金額起算，不含已領配息。")
 
 # 利率敏感度
 st.subheader("利率變動對換券多出的影響")
