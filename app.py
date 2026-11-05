@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 海外債換券比較試算 — 舊券 A 贖回，換入零息債＋配息基金（基本款）或自組標的
-比較「維持 A 券」與「換券」在兩個時點的現金流與總值，並試算實現虧損的稅務扣抵
+比較「維持原券」與「換新券」在兩個時點的現金流與總值，並試算實現虧損的稅務扣抵
 資料來源：Supabase bond_price_history（每日報價檔經龍蝦Bot /bond-upload 寫入）
 僅供內部教育訓練／試算參考
 """
@@ -485,59 +485,59 @@ rows = []
 for nm, H in horizons:
     th, ts = total_hold(H), total_swap(H)
     yr_h = (pd.Timestamp(TODAY) + pd.Timedelta(days=round(H * 365.25))).year
-    rows.append(dict(比較時點=f"{nm}（{yr_h} 年，{H:.1f} 年後）", H=H, 維持A券=th, 換券=ts,
-                     換券多出=ts - th, 年化_維持=ann(th, H), 年化_換券=ann(ts, H)))
+    rows.append(dict(比較時點=f"{nm}（{yr_h} 年，{H:.1f} 年後）", H=H, 維持A券=th, 換新券=ts,
+                     換新券多出=ts - th, 年化_維持=ann(th, H), 年化_換新券=ann(ts, H)))
 res = pd.DataFrame(rows)
 
 cash_a = float(a["每年配息"].sum())
 cash_s = float(hv["每年配息"].sum())
 
-st.markdown('<div class="dash-title">換券效益比較－維持 A 券 vs 換券</div>', unsafe_allow_html=True)
+st.markdown('<div class="dash-title">換券效益比較－維持原券 vs 換新券</div>', unsafe_allow_html=True)
 k1, k2, k3 = st.columns(3)
 best = res.iloc[-1]
-k1.markdown(f'<div class="card">每年現金流（美元）<br><span class="muted">維持 A 券 → 換券</span>'
+k1.markdown(f'<div class="card">每年現金流（美元）<br><span class="muted">維持原券 → 換新券</span>'
             f'<div class="big">{fmt(cash_a)} → {fmt(cash_s)}</div>'
             f'<span class="muted">每月約 {fmt(cash_a / 12)} → {fmt(cash_s / 12)}</span></div>', unsafe_allow_html=True)
 for col, (_, r) in zip([k2, k3], res.iterrows()):
-    color = "#1E7F4C" if r["換券多出"] >= 0 else "#C0392B"
-    col.markdown(f'<div class="card">放到{r["比較時點"].split("（")[0]}，換券多出'
-                 f'<div class="big" style="color:{color}">{r["換券多出"]:+,.0f}</div>'
+    color = "#1E7F4C" if r["換新券多出"] >= 0 else "#C0392B"
+    col.markdown(f'<div class="card">放到{r["比較時點"].split("（")[0]}，換新券多出'
+                 f'<div class="big" style="color:{color}">{r["換新券多出"]:+,.0f}</div>'
                  f'<span class="muted">{r["比較時點"]}</span></div>', unsafe_allow_html=True)
 
 g1, g2 = st.columns(2)
 with g1:
-    st.markdown("**【到期總值】維持 A 券 vs 換券**")
-    gd = pd.concat([pd.DataFrame({"時點": res["比較時點"].str.split("（").str[0], "方案": "維持 A 券", "金額": res["維持A券"]}),
-                    pd.DataFrame({"時點": res["比較時點"].str.split("（").str[0], "方案": "換券", "金額": res["換券"]})])
+    st.markdown("**【到期總值】維持原券 vs 換新券**")
+    gd = pd.concat([pd.DataFrame({"時點": res["比較時點"].str.split("（").str[0], "方案": "維持原券", "金額": res["維持A券"]}),
+                    pd.DataFrame({"時點": res["比較時點"].str.split("（").str[0], "方案": "換新券", "金額": res["換新券"]})])
     ch = alt.Chart(gd).mark_bar().encode(
         x=alt.X("方案:N", title=None, axis=alt.Axis(labels=False, ticks=False)),
         y=alt.Y("金額:Q", axis=alt.Axis(format=",.0f", title=None)),
-        color=alt.Color("方案:N", scale=alt.Scale(domain=["維持 A 券", "換券"], range=[BLUE, ORANGE]),
+        color=alt.Color("方案:N", scale=alt.Scale(domain=["維持原券", "換新券"], range=[BLUE, ORANGE]),
                         legend=alt.Legend(orient="bottom", title=None)),
         column=alt.Column("時點:N", title=None, sort=list(res["比較時點"].str.split("（").str[0]), header=alt.Header(labelFontSize=13, labelFontWeight="bold")))
     st.altair_chart(ch.properties(width=170, height=260))
 with g2:
-    st.markdown("**【每年現金流】維持 A 券 vs 換券**")
-    cd = pd.DataFrame({"方案": ["維持 A 券", "換券"], "每年配息": [cash_a, cash_s]})
+    st.markdown("**【每年現金流】維持原券 vs 換新券**")
+    cd = pd.DataFrame({"方案": ["維持原券", "換新券"], "每年配息": [cash_a, cash_s]})
     b = alt.Chart(cd).mark_bar(size=44).encode(
-        y=alt.Y("方案:N", sort=["換券", "維持 A 券"], title=None),
+        y=alt.Y("方案:N", sort=["換新券", "維持原券"], title=None),
         x=alt.X("每年配息:Q", axis=alt.Axis(format=",.0f", title=None),
                 scale=alt.Scale(domain=[0, max(cash_a, cash_s, 1) * 1.2])),
-        color=alt.Color("方案:N", scale=alt.Scale(domain=["換券", "維持 A 券"], range=[ORANGE, BLUE]), legend=None))
+        color=alt.Color("方案:N", scale=alt.Scale(domain=["換新券", "維持原券"], range=[ORANGE, BLUE]), legend=None))
     t = b.mark_text(align="right", dx=-8, fontWeight="bold", fontSize=15).encode(
         text=alt.Text("每年配息:Q", format=",.0f"), color=alt.value("white"))
     st.altair_chart((b + t).properties(height=260), width="stretch")
 
-show_table(res[["比較時點", "維持A券", "換券", "換券多出", "年化_維持", "年化_換券"]].rename(
-    columns={"維持A券": "維持 A 券合計", "換券": "換券合計", "年化_維持": "年化（維持）", "年化_換券": "年化（換券）"}),
-    {"維持 A 券合計": "{:,.0f}", "換券合計": "{:,.0f}", "換券多出": "{:+,.0f}",
-     "年化（維持）": "{:.2%}", "年化（換券）": "{:.2%}"}, signed=("換券多出",))
+show_table(res[["比較時點", "維持A券", "換新券", "換新券多出", "年化_維持", "年化_換新券"]].rename(
+    columns={"維持A券": "維持原券合計", "換新券": "換新券合計", "年化_維持": "年化（維持原券）", "年化_換新券": "年化（換新券）"}),
+    {"維持原券合計": "{:,.0f}", "換新券合計": "{:,.0f}", "換新券多出": "{:+,.0f}",
+     "年化（維持原券）": "{:.2%}", "年化（換新券）": "{:.2%}"}, signed=("換新券多出",))
 st.caption("合計＝已領配息＋未來累計配息＋比較時點的本金或估價（已到期債券以面額計，之後依「再投入配息率」續領息）；"
            "未到期債券以目前殖利率加計利率變動估價；基金本金依淨值變動假設計算。"
-           "已領配息兩邊相同，不影響換券多出；年化從贖回金額起算，不含已領配息。")
+           "已領配息兩邊相同，不影響換新券多出；年化從贖回金額起算，不含已領配息。")
 
 # 利率敏感度
-st.subheader("利率變動對換券多出的影響")
+st.subheader("利率變動對換新券多出的影響")
 sens = []
 for nm, H in horizons:
     row = {"比較時點": nm}
