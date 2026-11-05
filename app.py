@@ -163,23 +163,6 @@ except Exception as e:
 TODAY = date.today()
 
 
-# 綜合所得稅課稅級距（上限, 稅率, 累進差額）；依財政部公告
-TAX_BRACKETS = {
-    114: [(590_000, .05, 0), (1_330_000, .12, 41_300), (2_660_000, .20, 147_700),
-          (4_980_000, .30, 413_700), (float("inf"), .40, 911_700)],
-    115: [(610_000, .05, 0), (1_380_000, .12, 42_700), (2_770_000, .20, 153_100),
-          (5_190_000, .30, 430_100), (float("inf"), .40, 949_100)],
-}
-
-
-def income_tax(net, roc_year):
-    br = TAX_BRACKETS[min(max(roc_year, min(TAX_BRACKETS)), max(TAX_BRACKETS))]
-    for cap, rate, diff in br:
-        if net <= cap:
-            return max(0.0, net * rate - diff)
-    return 0.0
-
-
 # ───────────────────────── 工具函式 ─────────────────────────
 def fmt(v, d=0):
     return "—" if v is None or (isinstance(v, float) and math.isnan(v)) else f"{v:,.{d}f}"
@@ -563,68 +546,30 @@ st.caption("利率下降時，未到期的舊長債估價上升，換券優勢�
 # ───────────────────────── ④ 稅務 ─────────────────────────
 st.header("④ 實現虧損可抵海外財產交易所得")
 loss_usd = -min(0.0, float(a["實現損益"].sum()))
-fx = usd_twd()
-t1, t2 = st.columns([1, 1], gap="large")
+t1, t2 = st.columns([1, 1.4], gap="large")
 with t1:
     redeem_day = st.date_input("預計贖回日", value=TODAY, key="redeem_day")
-    fx = st.number_input("美元兌台幣匯率", 20.0, 40.0, float(round(fx, 2)), 0.01, format="%.2f")
-    gain = st.number_input("客戶同年度海外財產交易所得（已實現獲利，台幣）", 0.0, value=8_000_000.0,
-                           step=100_000.0, format="%.0f", help="例如同一年賣出海外股票、ETF、境外基金的獲利")
-    other = st.number_input("其他海外所得（利息、配息等，台幣）", 0.0, value=500_000.0, step=100_000.0, format="%.0f")
-    net_inc = st.number_input("綜合所得淨額（台幣）", 0.0, value=2_000_000.0, step=100_000.0, format="%.0f")
-    roc = redeem_day.year - 1911
-    auto_tax = income_tax(net_inc, roc)
-    use_br = min(max(roc, min(TAX_BRACKETS)), max(TAX_BRACKETS))
-    note = "" if use_br == roc else f"（{roc} 年度級距尚未公告，暫用 {use_br} 年度）"
-    manual = st.checkbox("手動輸入一般所得稅額（例如有投資抵減、分開計稅等特殊情況）", key="manual_tax")
-    if manual:
-        gen_tax = st.number_input("一般所得稅額（台幣）", 0.0, value=float(round(auto_tax)), step=10_000.0,
-                                  format="%.0f")
-    else:
-        gen_tax = auto_tax
-        st.caption(f"一般所得稅額（自動計算）：**{fmt(gen_tax)} 元**＝綜合所得淨額 {fmt(net_inc)} 套 {use_br} 年度"
-                   f"累進稅率{note}")
-    exempt = st.number_input("基本所得額免稅額（台幣）", 0.0, value=7_500_000.0, step=100_000.0, format="%.0f",
-                             help="113～115 年度皆為 750 萬，依財政部每年公告調整")
-
-
-def basic_tax(prop_gain):
-    overseas = prop_gain + other
-    counted = overseas if overseas >= 1_000_000 else 0.0      # 全戶海外所得達 100 萬才計入
-    bi = net_inc + counted
-    bt = max(0.0, (bi - exempt) * 0.2)
-    return overseas, bi, bt, max(0.0, bt - gen_tax)
-
-
-with t2:
+    fx = st.number_input("美元兌台幣匯率", 20.0, 40.0, float(round(usd_twd(), 2)), 0.01, format="%.2f")
     loss_twd = loss_usd * fx
     yr = redeem_day.year
-    st.markdown(f'<div class="card">換券實現虧損（台幣）<div class="big">{fmt(loss_twd)}</div>'
-                f'<span class="muted">美元 {fmt(loss_usd)} × {fx:.2f}；{redeem_day:%Y/%m/%d} 贖回，列入 {yr} 年度、'
-                f'{yr + 1}/5 申報</span></div>', unsafe_allow_html=True)
-    o0, b0, t0, d0 = basic_tax(gain)
-    o1, b1, t1v, d1 = basic_tax(max(0.0, gain - loss_twd))
-    tax = pd.DataFrame([
-        ["海外財產交易所得", gain, max(0.0, gain - loss_twd)],
-        ["其他海外所得", other, other],
-        ["綜合所得淨額", net_inc, net_inc],
-        ["基本所得額", b0, b1],
-        ["基本稅額（超過免稅額部分 × 20%）", t0, t1v],
-        ["一般所得稅額（綜所稅應納稅額）", gen_tax, gen_tax],
-        ["應補繳基本稅額", d0, d1],
-    ], columns=["項目（台幣）", "不換券", "換券（實現虧損）"])
-    tax["差異"] = tax["換券（實現虧損）"] - tax["不換券"]
-    show_table(tax, {c: "{:,.0f}" for c in ["不換券", "換券（實現虧損）"]} | {"差異": "{:+,.0f}"})
-    if d0 - d1 > 0:
-        st.success(f"試算可少繳基本稅額約 {fmt(d0 - d1)} 元。")
-    elif loss_twd <= 0:
-        st.info("A 券沒有實現虧損，不適用扣抵。")
+    if loss_usd > 0:
+        st.markdown(f'<div class="card">換券實現虧損（台幣）<div class="big">{fmt(loss_twd)}</div>'
+                    f'<span class="muted">美元 {fmt(loss_usd)} × {fx:.2f}<br>'
+                    f'可用來扣抵 <b>{yr} 年度</b>的海外財產交易所得（{yr + 1} 年 5 月申報）</span></div>',
+                    unsafe_allow_html=True)
     else:
-        st.info("此情境下基本所得額未超過免稅額，或海外所得未達 100 萬，扣抵後基本稅額沒有差異。")
-
-st.caption("可抵：同年度海外財產交易所得；不能抵：利息、配息等其他海外所得；當年扣不完不能遞延。"
-           "損益以台幣核實計算（成交價－原始成本，溢價也算成本），請保留交易憑證。"
-           "稅務說明僅供教育訓練參考，非稅務建議，實際依國稅局認定及客戶申報情形為準。")
+        st.info("A 券沒有實現虧損，不適用扣抵。")
+with t2:
+    st.markdown("""
+<div class="card">
+<b>✅ 可以抵</b>：同年度的<b>海外財產交易所得</b>，例如同一年賣出海外股票、ETF、境外基金的獲利<br>
+<b>❌ 不能抵</b>：利息、配息等其他海外所得<br>
+<b>⏳ 不能遞延</b>：當年扣不完的部分，不能留到以後年度<br>
+<b>🧮 怎麼算</b>：成交價 － 原始成本（當初溢價也算成本），以台幣核實計算，要保留交易憑證<br>
+<b>📅 看贖回日</b>：12 月贖回列入當年度，隔年 1 月贖回就列入下一個年度
+</div>""", unsafe_allow_html=True)
+st.caption("實際能少繳多少稅，要看客戶全戶的海外所得、股利、保險給付等完整申報內容，"
+           "請客戶洽詢會計師或依國稅局認定為準。本段僅供教育訓練參考，非稅務建議。")
 
 st.markdown("---")
 st.caption("本試算僅供內部教育訓練與試算參考。基金配息率為假設、非保證，配息可能來自本金；"
