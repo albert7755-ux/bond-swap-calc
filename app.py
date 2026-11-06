@@ -303,12 +303,20 @@ with right:
 
     if mode.startswith("基本款"):
         zeros = quotes[(quotes["coupon"].fillna(-1) == 0)].sort_values("maturity")
-        if zeros.empty:
-            st.warning("今日報價沒有美元零息債，請改用「自己組」。")
-            st.stop()
-        z_label = st.selectbox("零息債", list(zeros.index),
-                               index=min(len(zeros) - 1, max(0, len(zeros) // 2)), key="z_sel")
-        z = zeros.loc[z_label]
+        HYPO = "9 年期零息債（假設券，價格與年期可改）"
+        z_opts = [HYPO] + list(zeros.index)
+        z_label = st.selectbox("零息債", z_opts,
+                               index=min(len(z_opts) - 1, 1 + max(0, len(zeros) // 2)) if len(zeros) else 0,
+                               key="z_sel")
+        if z_label == HYPO:
+            h1, h2 = st.columns(2)
+            hp = h1.number_input("假設券價格", 1.0, 100.0, 64.0, 0.5, format="%.2f", key="hypo_px")
+            hy = h2.number_input("假設券年期（年）", 1.0, 30.0, 9.0, 1.0, format="%.0f", key="hypo_yr")
+            z_mat = pd.Timestamp(TODAY) + pd.Timedelta(days=round(hy * 365.25))
+            z = pd.Series({"bond_name": f"{hy:.0f} 年期零息債（假設券）", "offer": hp, "maturity": z_mat,
+                           "min_amt": float("nan"), "ytm": bond_yield(hp, 0, hy)})
+        else:
+            z = zeros.loc[z_label]
         z_t = years_to(z["maturity"])
         a_face = float(a["面額"].sum())
         max_face = math.floor(R / (z["offer"] / 100) / 1000) * 1000
