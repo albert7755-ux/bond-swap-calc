@@ -254,18 +254,17 @@ with left:
         key="a_ed",
         column_config={
             "名稱": st.column_config.TextColumn(required=True, width="small"),
-            "面額": st.column_config.NumberColumn(min_value=0, step=1000, format="localized", required=True, width="small"),
+            "面額": st.column_config.NumberColumn(min_value=0, step=1000, format="localized", width="small"),
             "當初投入": st.column_config.NumberColumn(min_value=0, step=1000, format="localized", width="small",
                                                     help="含溢價的實際投入（美元），用來算實現損益與稅務扣抵"),
-            "價格": st.column_config.NumberColumn(min_value=0.01, max_value=200, step=0.01, format="%.2f", width="small",
-                                                  required=True, help="目前可贖回價格（每 100 面額）"),
-            "票面%": st.column_config.NumberColumn(min_value=0, max_value=20, step=0.125, format="%.2f", width="small",
-                                                      required=True),
-            "到期日": st.column_config.DateColumn(min_value=TODAY, format="YYYY-MM-DD", required=True, width="small"),
+            "價格": st.column_config.NumberColumn(min_value=0.01, max_value=200, step=0.01, format="%.2f", width="small", help="目前可贖回價格（每 100 面額）"),
+            "票面%": st.column_config.NumberColumn(min_value=0, max_value=20, step=0.125, format="%.2f", width="small"),
+            "到期日": st.column_config.DateColumn(min_value=TODAY, format="YYYY-MM-DD", width="small"),
             "已領息": st.column_config.NumberColumn(min_value=0, step=500, format="localized", width="small",
                                                  help="持有至今已領到的配息（美元，選填）；兩邊總值都會加上"),
         })
-    a = a_in.dropna(subset=["面額", "價格", "票面%", "到期日"]).copy()
+    a = a_in.dropna(subset=["面額", "價格", "到期日"]).copy()
+    a["票面%"] = a["票面%"].fillna(0.0)          # 空白視為 0（零息債）
     a = a[a["面額"] > 0]
     if a.empty:
         st.info("請先填寫至少一檔 A 券。")
