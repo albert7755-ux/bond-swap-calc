@@ -237,17 +237,14 @@ st.title("🔄 海外債換券比較試算")
 st.markdown(f'<span class="tag">僅供內部教育訓練使用・請勿外流</span> '
             f'<span class="muted">報價日期：{snap_date}（美元債 {len(quotes)} 檔）・以美元計算</span>',
             unsafe_allow_html=True)
-st.caption("庫存標的（債券、基金、股票）贖回後，換入「零息債打底＋配息基金」或自組標的，比較繼續持有與換新券的結果。")
+st.caption("舊券（A 券）贖回後，換入「零息債打底＋配息基金」或自組標的，比較繼續持有與換券在兩個時點的結果。")
 
 left, right = st.columns([1.45, 1], gap="medium")
 
-# ───────────────────────── 左：庫存標的 ─────────────────────────
-OVERSEAS = {"境外基金", "海外股票／ETF"}          # 可扣抵海外財產交易所得的類型（海外債另計）
-OTHER_TYPES = ["境外基金", "海外股票／ETF", "國內基金", "台股", "其他"]
+# ───────────────────────── 左：A 券 ─────────────────────────
 with left:
-    st.header("① 目前持有的庫存標的")
-    st.subheader("庫存債券")
-    st.caption("✏️ 直接在表格填寫，可新增多列；票面% 打 0 或留白＝零息債；沒有庫存債券就把列刪掉")
+    st.header("① 目前持有的舊券（A 券）")
+    st.caption("✏️ 直接在表格填寫，可新增多列（表格最下面一列點一下就能新增）")
     a_default = pd.DataFrame([{
         "名稱": "舊長債", "面額": 100000.0, "當初投入": 100000.0,
         "價格": 75.0, "票面%": 3.5, "到期日": date(TODAY.year + 18, TODAY.month, 1), "已領息": 15000.0,
@@ -267,8 +264,11 @@ with left:
                                                  help="持有至今已領到的配息（美元，選填）；兩邊總值都會加上"),
         })
     a = a_in.dropna(subset=["面額", "價格", "到期日"]).copy()
-    a["票面%"] = a["票面%"].fillna(0.0)
+    a["票面%"] = a["票面%"].fillna(0.0)          # 空白視為 0（零息債）
     a = a[a["面額"] > 0]
+    if a.empty:
+        st.info("請先填寫至少一檔 A 券。")
+        st.stop()
     a["剩餘年期"] = a["到期日"].apply(years_to)
     a["贖回金額"] = a["面額"] * a["價格"] / 100
     a["殖利率(%)"] = [bond_yield(p, c, t) for p, c, t in zip(a["價格"], a["票面%"], a["剩餘年期"])]
@@ -277,61 +277,22 @@ with left:
     a["實現損益"] = a["贖回金額"] - a["當初投入"]
     a["已領息"] = a["已領息"].fillna(0) if "已領息" in a else 0.0
     a["含息損益"] = a["實現損益"] + a["已領息"]
-
-    st.subheader("庫存基金／股票")
-    st.caption("✏️ 選類型後填目前市值；沒有配息就把配息率填 0")
-    o_default = pd.DataFrame({"名稱": pd.Series(dtype="str"), "類型": pd.Series(dtype="str"),
-                              "當初投入": pd.Series(dtype="float"), "目前市值": pd.Series(dtype="float"),
-                              "年配息率%": pd.Series(dtype="float"), "已領息": pd.Series(dtype="float")})
-    o_in = st.data_editor(
-        o_default, num_rows="dynamic", hide_index=True, width="stretch", key="o_ed",
-        column_config={
-            "名稱": st.column_config.TextColumn(width="small"),
-            "類型": st.column_config.SelectboxColumn(options=OTHER_TYPES, width="small"),
-            "當初投入": st.column_config.NumberColumn(min_value=0, step=1000, format="localized", width="small"),
-            "目前市值": st.column_config.NumberColumn(min_value=0, step=1000, format="localized", width="small"),
-            "年配息率%": st.column_config.NumberColumn(min_value=0, max_value=30, step=0.25, format="%.2f",
-                                                    width="small"),
-            "已領息": st.column_config.NumberColumn(min_value=0, step=500, format="localized", width="small"),
-        })
-    o = o_in.dropna(subset=["目前市值"]).copy()
-    o = o[o["目前市值"] > 0]
-    o["名稱"] = o["名稱"].fillna("未命名")
-    o["類型"] = o["類型"].fillna("其他")
-    o["當初投入"] = o["當初投入"].fillna(o["目前市值"])
-    o["年配息率%"] = o["年配息率%"].fillna(0.0)
-    o["已領息"] = o["已領息"].fillna(0.0)
-    o["每年配息"] = o["目前市值"] * o["年配息率%"] / 100
-    o["實現損益"] = o["目前市值"] - o["當初投入"]
-    o["含息損益"] = o["實現損益"] + o["已領息"]
-
-    if a.empty and o.empty:
-        st.info("請先填寫至少一檔庫存標的。")
-        st.stop()
-
-    allv = pd.concat([
-        pd.DataFrame({"名稱": a["名稱"], "類型": "海外債", "剩餘年期": a["剩餘年期"], "殖利率/配息率": a["殖利率(%)"],
-                      "贖回金額": a["贖回金額"], "每年配息": a["每年配息"], "實現損益": a["實現損益"],
-                      "含息損益": a["含息損益"]}),
-        pd.DataFrame({"名稱": o["名稱"], "類型": o["類型"], "剩餘年期": float("nan"), "殖利率/配息率": o["年配息率%"],
-                      "贖回金額": o["目前市值"], "每年配息": o["每年配息"], "實現損益": o["實現損益"],
-                      "含息損益": o["含息損益"]})], ignore_index=True)
-    R = float(allv["贖回金額"].sum())
-    RECEIVED = float(a["已領息"].sum() + o["已領息"].sum())
-    st.markdown("**庫存彙總（全部贖回）**")
-    show_table(allv, {"剩餘年期": "{:.1f}", "殖利率/配息率": "{:.2f}%", "贖回金額": "{:,.0f}", "每年配息": "{:,.0f}",
-                      "實現損益": "{:+,.0f}", "含息損益": "{:+,.0f}"},
+    R = a["贖回金額"].sum()
+    RECEIVED = float(a["已領息"].sum())
+    show_table(a[["名稱", "剩餘年期", "殖利率(%)", "贖回金額", "每年配息", "實現損益", "含息損益"]],
+               {"剩餘年期": "{:.1f}", "殖利率(%)": "{:.2f}%", "贖回金額": "{:,.0f}", "每年配息": "{:,.0f}",
+                "實現損益": "{:+,.0f}", "含息損益": "{:+,.0f}"},
                signed=("實現損益", "含息損益"),
-               total=None if len(allv) < 2 else {"名稱": "合計", "贖回金額": fmt(R),
-                                                 "每年配息": fmt(allv["每年配息"].sum()),
-                                                 "實現損益": f'{allv["實現損益"].sum():+,.0f}',
-                                                 "含息損益": f'{allv["含息損益"].sum():+,.0f}'})
+               total=None if len(a) < 2 else {"名稱": "合計", "贖回金額": fmt(R),
+                                              "每年配息": fmt(a["每年配息"].sum()),
+                                              "實現損益": f'{a["實現損益"].sum():+,.0f}',
+                                              "含息損益": f'{a["含息損益"].sum():+,.0f}'})
     c1, c2 = st.columns(2)
     c1.markdown(f'<div class="card">贖回可用資金（美元）<div class="big">{fmt(R)}</div></div>',
                 unsafe_allow_html=True)
-    c2.markdown(f'<div class="card">實現損益（美元）<div class="big">{allv["實現損益"].sum():+,.0f}</div>'
+    c2.markdown(f'<div class="card">實現損益（美元）<div class="big">{a["實現損益"].sum():+,.0f}</div>'
                 f'<span class="muted">加上已領配息 {fmt(RECEIVED)}，含息損益 '
-                f'<b>{allv["含息損益"].sum():+,.0f}</b></span></div>', unsafe_allow_html=True)
+                f'<b>{a["含息損益"].sum():+,.0f}</b></span></div>', unsafe_allow_html=True)
 
 # ───────────────────────── 右：換入方式 ─────────────────────────
 with right:
@@ -349,12 +310,11 @@ with right:
                                index=min(len(zeros) - 1, max(0, len(zeros) // 2)), key="z_sel")
         z = zeros.loc[z_label]
         z_t = years_to(z["maturity"])
-        a_face = float(a["面額"].sum()) if not a.empty else 0.0
+        a_face = float(a["面額"].sum())
         max_face = math.floor(R / (z["offer"] / 100) / 1000) * 1000
         z_face = st.number_input("零息債面額（美元）", min_value=0.0, step=1000.0, format="%.0f",
-                                 value=float(min(math.floor(a_face / 1000) * 1000, max_face) if a_face > 0
-                                             else math.floor(max_face * 0.7 / 1000) * 1000), key="z_face",
-                                 help=f"預設＝庫存債券面額（鎖定 100% 面額；沒有庫存債券時預設 7 成資金）；目前最多可買 {fmt(max_face)}")
+                                 value=float(min(math.floor(a_face / 1000) * 1000, max_face)), key="z_face",
+                                 help=f"預設＝A 券面額（鎖定 100% 面額）；目前資金最多可買 {fmt(max_face)}")
         z_cost = z_face * z["offer"] / 100
         if z_cost > R + 0.5:
             st.error(f"不夠買：零息債成本 {fmt(z_cost)} 超過贖回金額 {fmt(R)}，最多可買面額 {fmt(max_face)}。")
@@ -486,35 +446,23 @@ with right:
 # ───────────────────────── ③ 情境設定 ─────────────────────────
 st.header("③ 比較結果")
 with st.expander("⚙️ 情境假設（可調整）", expanded=False):
-    s1, s2, s3, s4 = st.columns(4)
+    s1, s2, s3 = st.columns(3)
     dy = s1.slider("比較時點的利率變動（%）", -2.0, 2.0, 0.0, 0.25,
                    help="影響尚未到期債券在比較時點的估價；利率下降→舊券估價上升")
     nav = s2.slider("基金淨值變動（到比較時點）", -40, 20, 0, 5, format="%d%%",
                     help="基金配息可能來自本金，可模擬淨值被侵蝕的情況")
     reinv = s3.number_input("到期資金再投入年配息率（%）", 0.0, 20.0, float(reinv_default), 0.25,
                             help="債券先到期後，拿回的本金假設轉入配息標的繼續領息（兩邊相同處理）")
-    o_g = s4.slider("庫存基金／股票每年價格變動（%）", -10.0, 10.0, 0.0, 0.5,
-                    help="繼續持有庫存基金或股票時，假設每年淨值／股價的變動")
-    if a.empty:
-        H_custom = st.number_input("比較年數（沒有庫存債券時，若換入也沒有債券就用這個年數）", 1.0, 40.0, 10.0, 1.0)
 
 bond_holds = [h for h in holds if h["類型"] != "基金" and h["面額"] > 0]
-H2 = float(a["剩餘年期"].max()) if not a.empty else None
-H1 = max([h["t"] for h in bond_holds], default=H2 if H2 is not None else H_custom)
-if H2 is None:
-    horizons = [("換入債券到期" if bond_holds else "比較年數", H1)]
-elif abs(H1 - H2) > 0.05:
-    horizons = [("換入債券到期", H1), ("原債券到期", H2)]
-else:
-    horizons = [("原債券到期", H2)]
+H1 = max([h["t"] for h in bond_holds], default=max(a["剩餘年期"]))
+H2 = float(a["剩餘年期"].max())
+horizons = [("換入債券到期", H1), ("A 券到期", H2)] if abs(H1 - H2) > 0.05 else [("A 券到期", H2)]
 
 
 def total_hold(H):
-    bonds = sum(bond_total(f, c, t, y, H, dy, reinv)
-                for f, c, t, y in zip(a["面額"], a["票面%"], a["剩餘年期"], a["殖利率(%)"]))
-    others = sum(mv * dv / 100 * H + mv * (1 + o_g / 100) ** H
-                 for mv, dv in zip(o["目前市值"], o["年配息率%"]))
-    return RECEIVED + bonds + others
+    return RECEIVED + sum(bond_total(f, c, t, y, H, dy, reinv)
+               for f, c, t, y in zip(a["面額"], a["票面%"], a["剩餘年期"], a["殖利率(%)"]))
 
 
 def total_swap(H):
@@ -540,7 +488,7 @@ for nm, H in horizons:
                      換新券多出=ts - th, 年化_維持=ann(th, H), 年化_換新券=ann(ts, H)))
 res = pd.DataFrame(rows)
 
-cash_a = float(allv["每年配息"].sum())
+cash_a = float(a["每年配息"].sum())
 cash_s = float(hv["每年配息"].sum())
 
 st.markdown('<div class="dash-title">換券效益比較－維持原券 vs 換新券</div>', unsafe_allow_html=True)
@@ -604,9 +552,7 @@ st.caption("利率下降時，未到期的舊長債估價上升，換券優勢�
 
 # ───────────────────────── ④ 稅務 ─────────────────────────
 st.header("④ 實現虧損可抵海外財產交易所得")
-ov_pnl = float(a["實現損益"].sum() + o.loc[o["類型"].isin(OVERSEAS), "實現損益"].sum())
-dom_pnl = float(o.loc[~o["類型"].isin(OVERSEAS), "實現損益"].sum())
-loss_usd = -min(0.0, ov_pnl)
+loss_usd = -min(0.0, float(a["實現損益"].sum()))
 t1, t2 = st.columns([1, 1.4], gap="large")
 with t1:
     redeem_day = st.date_input("預計贖回日", value=TODAY, key="redeem_day")
@@ -614,14 +560,12 @@ with t1:
     loss_twd = loss_usd * fx
     yr = redeem_day.year
     if loss_usd > 0:
-        st.markdown(f'<div class="card">海外標的實現虧損（台幣）<div class="big">{fmt(loss_twd)}</div>'
+        st.markdown(f'<div class="card">換券實現虧損（台幣）<div class="big">{fmt(loss_twd)}</div>'
                     f'<span class="muted">美元 {fmt(loss_usd)} × {fx:.2f}<br>'
                     f'可用來扣抵 <b>{yr} 年度</b>的海外財產交易所得（{yr + 1} 年 5 月申報）</span></div>',
                     unsafe_allow_html=True)
     else:
-        st.info("海外標的（海外債、境外基金、海外股票／ETF）合計沒有實現虧損，不適用扣抵。")
-    if dom_pnl < 0:
-        st.warning(f"國內基金、台股等的虧損 {fmt(-dom_pnl)} 美元屬於證券交易損失，**不能**拿來扣抵海外財產交易所得。")
+        st.info("A 券沒有實現虧損，不適用扣抵。")
 with t2:
     st.markdown("""
 <div class="card">
